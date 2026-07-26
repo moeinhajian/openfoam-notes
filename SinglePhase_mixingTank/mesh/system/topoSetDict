@@ -1,0 +1,101 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      topoSetDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Rotor cellSet: R=4.5mm (D/T~0.4, typical impeller sizing), z=[-2.5,5]mm.
+// Verified via STL vertex analysis of wall_rotor (baffles + tank bottom):
+// wall_rotor has ZERO faces at any radius in z=[-3.09,4.08]mm, and elsewhere
+// occupies only r>6.5mm (baffles) or the very bottom disc (r<7.9mm only at
+// z<-10.27mm). This cylinder sits fully clear of that geometry, avoiding
+// the MRF nonRotatingPatches bug (a stationary patch falling inside the
+// MRF cellZone gets incorrectly treated as co-rotating unless excluded).
+
+actions
+(
+    {
+        name    rotor;
+        type    cellSet;
+        action  new;
+        source  cylinderToCell;
+        sourceInfo
+        {
+            p1    (0 0 -0.0025);
+            p2    (0 0  0.005);
+            radius 0.0045;
+        }
+    }
+
+    // Outlet redesign: split the current large domed 'outlet' patch into
+    // a small real port (near the axis) and the surrounding sloped dome,
+    // which becomes wall. Radius chosen from the STL's own geometry.
+    // Confirmed working: cylinderToCell -> cellToFace gave outletPort=359
+    // (out of 1349 total outlet faces), consistent with the earlier
+    // STL-facet-based estimate (~24%).
+    {
+        name    outletPortCells;
+        type    cellSet;
+        action  new;
+        source  cylinderToCell;
+        sourceInfo
+        {
+            p1     (0 0 0.0075);
+            p2     (0 0 0.0130);
+            radius 0.005;
+        }
+    }
+    {
+        name    outletPort;
+        type    faceSet;
+        action  new;
+        source  patchToFace;
+        sourceInfo { name outlet; }
+    }
+    {
+        name    outletPort;
+        type    faceSet;
+        action  subset;
+        source  cellToFace;
+        sourceInfo
+        {
+            set    outletPortCells;
+            option all;
+        }
+    }
+
+    // Explicit complement: everything else that was 'outlet'. Built
+    // separately rather than relying on createPatch to infer "the rest" -
+    // two overlapping createPatch definitions silently let one win and
+    // left the other with zero faces last time. Building both sets
+    // ourselves removes the ambiguity entirely.
+    {
+        name    outletDome;
+        type    faceSet;
+        action  new;
+        source  patchToFace;
+        sourceInfo { name outlet; }
+    }
+    {
+        name    outletDome;
+        type    faceSet;
+        action  delete;
+        source  cellToFace;
+        sourceInfo
+        {
+            set    outletPortCells;
+            option all;
+        }
+    }
+);
+
+// ************************************************************************* //

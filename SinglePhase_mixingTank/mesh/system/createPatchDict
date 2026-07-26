@@ -1,0 +1,51 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      createPatchDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Both new patches built purely "constructFrom set", using the two
+// explicit, mutually-exclusive faceSets topoSet already built (outletPort,
+// outletDome). Avoids the earlier failure mode where one 'constructFrom
+// patches' definition silently claimed everything and left the other
+// patch with zero faces.
+//
+// IMPORTANT: run topoSet first in the same directory - this dict reads
+// the outletPort/outletDome faceSets topoSet creates, it does not compute
+// them itself.
+
+pointSync false;
+
+patches
+(
+    {
+        name            outlet_port;
+        patchInfo
+        {
+            type        patch;
+        }
+        constructFrom   set;
+        set             outletPort;
+    }
+
+    {
+        name            domeWall;
+        patchInfo
+        {
+            type        wall;
+        }
+        constructFrom   set;
+        set             outletDome;
+    }
+);
+
+// ************************************************************************* //

@@ -1,0 +1,24 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      surfaceFeatureExtractDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// NOTE: reconstructed to match the single fluid_regions_OF_m.stl used by the
+// plain snappyHexMeshDict (the original unsuffixed file was never provided).
+
+fluid_regions_OF_m.stl
+{
+    #includeEtc "caseDicts/surface/surfaceFeatureExtractDict.cfg"
+}
+
+// ************************************************************************* //

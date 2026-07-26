@@ -1,0 +1,158 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      snappyHexMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Closed-surface run. Two watertight surfaces: fluid_regions_OF_m.stl (the
+// outer tank boundary, split into wall/wall_rotor/inlet/outlet regions) and
+// impeller.stl (a NEW internal solid obstacle - shaft + 2 crossbar blades -
+// to be carved OUT of the fluid via the normal flood-fill castellation).
+//
+// locationInMesh MOVED off-axis to (0.006 0 0): the old (0 0 0.005) point
+// now sits INSIDE the new shaft solid. r=6mm clears the blade tip (4mm)
+// and sits in the confirmed wall_rotor-empty z-band, so it stays clear of
+// baffles too.
+
+castellatedMesh true;
+snap            true;
+addLayers       false;
+
+geometry
+{
+    fluid
+    {
+        type triSurfaceMesh;
+        file "fluid_regions_OF_m.stl";
+        regions
+        {
+            wall        { name wall; }
+            wall_rotor  { name wall_rotor; }
+            inlet       { name inlet; }
+            outlet      { name outlet; }
+        }
+    }
+    impeller
+    {
+        type triSurfaceMesh;
+        file "impeller.stl";
+    }
+};
+
+castellatedMeshControls
+{
+    maxLocalCells 2000000;
+    maxGlobalCells 3000000;
+    minRefinementCells 10;
+    maxLoadUnbalance 0.10;
+    nCellsBetweenLevels 2;
+
+    // Lightened for a first-pass smoke test. Only inlet and impeller keep
+    // finer resolution: inlet is the smallest real tank feature, impeller
+    // is thin (1mm blade thickness) and needs a few cells across it.
+    features
+    (
+        { file "fluid_regions_OF_m.eMesh"; level 1; }
+    );
+
+    refinementSurfaces
+    {
+        fluid
+        {
+            level (1 1);
+            patchInfo { type wall; }
+            regions
+            {
+                wall        { level (1 1); patchInfo { type wall;  } }
+                wall_rotor  { level (1 1); patchInfo { type wall;  } }
+                // inlet/outlet now use real flow BCs (flowRateInletVelocity,
+                // inletOutlet) with 'calculated' nut, not a wall function -
+                // so the geometric type no longer needs to be 'wall' here.
+                inlet       { level (1 2); patchInfo { type patch; } }
+                outlet      { level (1 1); patchInfo { type patch; } }
+            }
+        }
+        impeller
+        {
+            level (2 2);
+            patchInfo { type wall; }
+        }
+    }
+
+    resolveFeatureAngle 30;
+
+    refinementRegions
+    {
+    }
+
+    locationInMesh (0.006 0 0);
+
+    allowFreeStandingZoneFaces true;
+}
+
+snapControls
+{
+    nSmoothPatch 3;
+    tolerance 2.0;
+    nSolveIter 100;
+    nRelaxIter 5;
+    nFeatureSnapIter 10;
+    implicitFeatureSnap false;
+    explicitFeatureSnap true;
+    multiRegionFeatureSnap true;
+}
+
+addLayersControls
+{
+    relativeSizes true;
+
+    layers
+    {
+    }
+
+    expansionRatio 1.0;
+    finalLayerThickness 0.3;
+    minThickness 0.1;
+    nGrow 0;
+    featureAngle 60;
+    nRelaxIter 3;
+    nSmoothSurfaceNormals 1;
+    nSmoothNormals 3;
+    nSmoothThickness 10;
+    maxFaceThicknessRatio 0.5;
+    maxThicknessToMedialRatio 0.3;
+    minMedianAxisAngle 90;
+    nBufferCellsNoExtrude 0;
+    nLayerIter 50;
+}
+
+meshQualityControls
+{
+    #include "meshQualityDict"
+
+    relaxed
+    {
+        maxNonOrtho 75;
+    }
+
+    nSmoothScale 4;
+    errorReduction 0.75;
+}
+
+writeFlags
+(
+    scalarLevels
+);
+
+mergeTolerance 1E-6;
+
+// ************************************************************************* //

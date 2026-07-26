@@ -1,0 +1,62 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      k;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Domain-average internal value kept from the rotor-tip-speed estimate
+// (0.0171 m2/s2) since that's still the dominant turbulence source in the
+// domain; inlet gets its own much smaller, physically-derived value since
+// the feed itself is low-Re (~6.6, essentially laminar).
+
+dimensions      [0 2 -2 0 0 0 0];
+
+internalField   uniform 0.0171;
+
+boundaryField
+{
+    wall
+    {
+        type            kqRWallFunction;
+        value           uniform 0.0171;
+    }
+    wall_rotor
+    {
+        type            kqRWallFunction;
+        value           uniform 0.0171;
+    }
+    domeWall
+    {
+        type            kqRWallFunction;
+        value           uniform 0.0171;
+    }
+    impeller
+    {
+        type            kqRWallFunction;
+        value           uniform 0.0171;
+    }
+    inlet
+    {
+        type            turbulentIntensityKineticEnergyInlet;
+        intensity       0.05;
+        value           uniform 3.03e-08;
+    }
+    outlet_port
+    {
+        type            inletOutlet;
+        inletValue      uniform 0.0171;
+        value           uniform 0.0171;
+    }
+}
+
+// ************************************************************************* //

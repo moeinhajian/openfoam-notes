@@ -1,0 +1,52 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      p;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 2 -2 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    wall
+    {
+        type            zeroGradient;
+    }
+    wall_rotor
+    {
+        type            zeroGradient;
+    }
+    domeWall
+    {
+        type            zeroGradient;
+    }
+    impeller
+    {
+        type            zeroGradient;
+    }
+    inlet
+    {
+        type            zeroGradient;
+    }
+    outlet_port
+    {
+        // Now fixes the pressure reference for the whole domain -
+        // pRefCell/pRefValue in fvSolution become inactive automatically.
+        type            fixedValue;
+        value           uniform 0;
+    }
+}
+
+// ************************************************************************* //

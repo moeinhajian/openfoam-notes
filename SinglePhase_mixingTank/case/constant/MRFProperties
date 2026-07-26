@@ -1,0 +1,32 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      MRFProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+MRF1
+{
+    cellZone            rotor;
+    active              yes;
+    // Empty is correct: impeller (blade tip r=4mm) sits INSIDE this zone
+    // (radius 4.5mm) and genuinely rotates, so it must NOT be excluded.
+    // nonRotatingPatches only lists patches inside the zone that should
+    // stay stationary despite being geometrically within it (e.g. a
+    // baffle poking into the zone) - not applicable here.
+    nonRotatingPatches  ();
+    origin              (0 0 0);
+    axis                (0 0 1);
+    omega               constant -209.43951;   // 2000 rpm, matches 0/U impeller BC
+}
+
+// ************************************************************************* //

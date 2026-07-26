@@ -1,0 +1,52 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     pimpleFoam;
+
+startFrom       startTime;
+startTime       0;
+
+// NOTE: full-domain residence time (V/Q) is ~653s at this feed rate, so
+// the inlet's bulk tank turnover won't complete in this window. But with
+// a real impeller now present (unlike the earlier bare-MRF test, which
+// was confirmed to do essentially nothing), 2s = ~66 rotor revolutions
+// (T_rot=30ms) should be enough to see real spin-up: U growing outward
+// from the blade tip over the first several revolutions, developing into
+// a macro-circulation pattern. Extend endTime if it's still visibly
+// changing at t=2.
+stopAt          endTime;
+endTime         2;
+
+deltaT          1e-5;
+
+writeControl    adjustableRunTime;
+writeInterval   0.05;
+
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  6;
+writeCompression off;
+
+timeFormat      general;
+timePrecision   6;
+
+runTimeModifiable true;
+
+adjustTimeStep  yes;
+maxCo           0.5;
+maxDeltaT       5e-4;           // stay well under the 30 ms rotation period
+
+// ************************************************************************* //

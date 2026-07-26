@@ -1,0 +1,60 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volVectorField;
+    location    "0";
+    object      U;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 1 -1 0 0 0 0];
+
+internalField   uniform (0 0 0);
+
+boundaryField
+{
+    wall
+    {
+        type            noSlip;
+    }
+    wall_rotor
+    {
+        type            noSlip;
+    }
+    domeWall
+    {
+        type            noSlip;
+    }
+    impeller
+    {
+        // Direct physical rotation, correct whether this face happens to
+        // sit inside or outside the MRF cellZone (the shaft extends well
+        // beyond it). This is what actually drives the flow now - MRF
+        // alone (no blade) was confirmed to do essentially nothing.
+        type            rotatingWallVelocity;
+        origin          (0 0 0);
+        axis            (0 0 1);
+        omega           constant -209.43951;   // 2000 rpm, matches MRFProperties
+    }
+    inlet
+    {
+        type                flowRateInletVelocity;
+        volumetricFlowRate  constant 1.217e-08;
+        value               uniform (0 0 0);
+    }
+    outlet_port
+    {
+        type            inletOutlet;
+        inletValue      uniform (0 0 0);
+        value           uniform (0 0 0);
+    }
+}
+
+// ************************************************************************* //
