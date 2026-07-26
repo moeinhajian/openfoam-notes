@@ -26,11 +26,20 @@ docker run -it --name <mycontainer> -v ~/openfoam-cases:/cases <image_name>
 - `--name` : names it, so you can find/resume it later instead of creating a new one
 - `-v host_path:container_path` : bind mount (shares a real folder with the container)
 
+#### - Activate the OpenFOAM environment (every new shell/session needs this)
+```bash
+source /opt/openfoam5/etc/bashrc
+```
+
 ### Resuming a container you already created
 ```bash
 docker start -ai <mycontainer>    # -a: attach output, -i: interactive (get your shell back)
 ```
 **Use this, not `docker run`, once a named container already exists** — `docker run` always creates a brand-new container from the image; `docker start` resumes the exact one you already have, with anything you previously installed/compiled inside it still there.
+#### - Activate the OpenFOAM environment (every new shell/session needs this)
+```bash
+source /opt/openfoam5/etc/bashrc
+```
 
 ### Popping into an ALREADY RUNNING container (second window, doesn't disturb it)
 ```bash
