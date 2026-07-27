@@ -26,6 +26,8 @@ docker run -it --name <mycontainer> -v ~/openfoam-cases:/cases <image_name>
 - `--name` : names it, so you can find/resume it later instead of creating a new one
 - `-v host_path:container_path` : bind mount (shares a real folder with the container)
 
+Check `docker inspect <original_container>` to see exactly how it was originally launched if you want to inspect/remember that setup.
+
 #### - Activate the OpenFOAM environment (every new shell/session needs this)
 ```bash
 source /opt/openfoam5/etc/bashrc
@@ -47,6 +49,8 @@ docker exec -it <mycontainer> bash
 ```
 Use this to check on a simulation that's currently running, without stopping it.
 
+You can run this `docker exec` command as many times as you want, from as many separate terminal windows as you want — each one gives you a fresh shell session inside the same container, all sharing the same filesystem, mounted volumes, and case directories. So your second calculation can just `cd` to `new_case/` (or wherever) and run normally, completely independently of whatever's running in your first terminal session — no conflict, no setup needed.
+
 ### Stopping / removing
 ```bash
 docker stop <mycontainer>         # gracefully stop a running container
@@ -62,7 +66,10 @@ docker cp <mycontainer>:/some/path/out.dat ./       # container -> host, one-off
 For anything ongoing (your actual case files), prefer the **bind mount** (`-v`) set up when you first ran the container — it's a live, continuous shared folder, no copy step needed at all.
 
 ## 4. Running LONG simulations that survive you disconnecting
-
+First, find out how many cores you actually have available, so run this inside the container.
+```bash
+nproc
+```
 This is the part that matters most for "large simulations" — by default, if you close your terminal or lose your SSH connection, a foreground process (like your solver) dies with it. Two ways to avoid that:
 
 ### Option A — run the whole container detached from the start
@@ -117,7 +124,7 @@ checkMesh
 icoFoam            # or whatever solver the case needs
 # for parallel:
 decomposePar
-mpirun -np <N> icoFoam -parallel
+mpirun -np <N> pimpleFoam -parallel | tee log.pimpleFoam
 reconstructPar      # merge parallel results back into single time directories
 ```
 
