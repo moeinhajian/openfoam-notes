@@ -123,12 +123,52 @@ blockMesh
 checkMesh
 icoFoam            # or whatever solver the case needs
 # for parallel:
+# 1. Split the mesh + fields into processorN/ directories.
+#    system/decomposeParDict must exist, with numberOfSubdomains matching -np below.
 decomposePar
+
+# 2. Run the solver across N processes
 mpirun -np <N> pimpleFoam -parallel | tee log.pimpleFoam
-reconstructPar      # merge parallel results back into single time directories
+
+# 3. Merge the processorN/ results back into ordinary time directories
+#    (needed before ParaView, postProcess, or anything else can read them normally)
+reconstructPar -latestTime     # just the most recent time
+reconstructPar                 # every saved timestep
+```
+### Error: "mpirun has detected an attempt to run as root"
+Containers commonly run everything as root, which Open MPI blocks by default (a safety
+check meant for real shared multi-user systems — largely moot in a disposable container):
+```bash
+mpirun --allow-run-as-root -np 4 pimpleFoam -parallel | tee log.pimpleFoam
 ```
 
-## 6. Quick troubleshooting checks
+### Error: "plm_rsh_agent ... ssh : rsh ... could not be found"
+Minimal container images often don't ship an `ssh` client, which Open MPI's default
+launcher looks for even for single-node, local-only runs where it's never actually used.
+Either option works, no reinstall needed:
+```bash
+# Option A: point at any harmless existing executable (never actually invoked locally)
+mpirun --allow-run-as-root -mca plm_rsh_agent /bin/sh -np 4 pimpleFoam -parallel | tee log.pimpleFoam
+
+# Option B: skip the ssh-based launcher entirely
+mpirun --allow-run-as-root --mca plm ^rsh -np 4 pimpleFoam -parallel | tee log.pimpleFoam
+```
+To fix it permanently instead of flagging every command (if the container has network access):
+```bash
+apt-get update && apt-get install -y openssh-client
+```
+## 6. Windows-artifact cleanup (`:Zone.Identifier` files)
+
+If case files were ever downloaded/copied through a Windows filesystem (even briefly, e.g.
+via `/mnt/c/...` in WSL) before landing in the container, Windows silently attaches an NTFS
+"Alternate Data Stream" to each one, marking it as internet-downloaded. These can surface as
+literal companion files (`myfile:Zone.Identifier`) that OpenFOAM tries and fails to read as
+part of its normal directory scan — harmless, but noisy. Clean them out once:
+```bash
+find /path/to/case -name "*:Zone.Identifier" -delete
+```
+
+## 7. Quick troubleshooting checks
 
 ```bash
 docker --version                  # confirm Docker itself is installed/working
