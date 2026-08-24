@@ -57,6 +57,29 @@ docker stop <mycontainer>         # gracefully stop a running container
 docker rm <mycontainer>           # delete it permanently (image is untouched)
 ```
 
+### One-shot / disposable containers (`--rm`)
+Everything above assumes a *persistent* container you keep coming back to
+— that's the right model for interactive work, but not every task needs
+it. `--rm` tells Docker to delete the container automatically the moment
+its command finishes, instead of leaving a stopped container sitting in
+`docker ps -a` that you'd otherwise have to clean up by hand:
+```bash
+docker run --rm -v ~/openfoam-cases:/cases <image_name> \
+    bash -c "source /opt/openfoam5/etc/bashrc && cd /cases/myCase && decomposePar"
+```
+**This is safe for anything using a bind mount, and here's precisely why**:
+`--rm` only deletes the *container's own private storage* (whatever it
+wrote outside `/cases`). It has zero effect on the bind-mounted folder,
+because that data was never inside the container's own storage to begin
+with — it's your host disk the whole time, just visible under a different
+path name. Nothing under `-v ~/openfoam-cases:/cases` is ever at risk from
+`--rm`.
+
+Use `--rm` for: `decomposePar`, `reconstructPar`, `checkMesh`, quick
+one-off checks — anything where you don't need the container itself to
+stick around afterward. Keep using the persistent `--name` pattern above
+for anything you're actively developing/debugging in.
+
 ## 3. Moving files in and out
 
 ```bash
@@ -109,6 +132,18 @@ tail -f ~/openfoam-cases/myCase/log.run
 
 **Important**: never type plain `exit` inside a container that's running your solver in the *foreground* — that kills the shell and the process with it. `Ctrl+P, Ctrl+Q` (detach) is safe; `exit` is not, unless the job is already backgrounded with `nohup ... &`.
 
+### Option C — detached AND self-cleaning (`-d --rm`), best for a genuinely unattended production run
+Combines Sections 2's `--rm` with Option A's `-d`. Use this when you're
+launching a run you don't intend to `exec` back into or fiddle with — just
+fire it off, let it write results to the bind mount, check on it from the
+host side, and let Docker clean up after itself when it's done:
+```bash
+docker run -d --rm --name of5_run -v ~/openfoam-cases:/cases <image_name> \
+    bash -c "source /opt/openfoam5/etc/bashrc && cd /cases/myCase && \
+    exec mpirun -np 4 pimpleFoam -parallel > log.run 2>&1"
+```
+**Note the `exec` before `mpirun` — this isn't optional if you want `docker stop` to work.** Without it, `mpirun` is a *child* of the `bash -c` process, and Docker's stop signal goes to `bash`, which does not automatically forward it to children it spawned — a genuine, well-known Docker gotcha, not a hypothetical. `exec` replaces the bash process with `mpirun` entirely, so `mpirun` becomes the container's actual PID 1 and receives the signal directly.
+
 ## 5. Everyday OpenFOAM-in-container workflow
 
 ```bash
@@ -135,6 +170,28 @@ mpirun -np <N> pimpleFoam -parallel | tee log.pimpleFoam
 reconstructPar -latestTime     # just the most recent time
 reconstructPar                 # every saved timestep
 ```
+
+### Stopping a long run cleanly (do this BEFORE reaching for `docker stop`)
+If `controlDict` has `runTimeModifiable true` (worth always setting for any
+run you might need to interrupt), you can tell the solver to stop cleanly
+without touching Docker at all — just edit the live file, from the host,
+since it's the same bind-mounted path:
+```bash
+sed -i 's/stopAt.*endTime;/stopAt          writeNow;/' ~/openfoam-cases/myCase/system/controlDict
+```
+The running solver notices the change, finishes and writes the *current*
+timestep properly, then exits on its own — avoiding a truncated or
+ambiguous latest-time directory, which is a real risk with any abrupt kill
+(`docker stop`, a lost connection, a reboot). If you intend to resume the
+run later, remember to set `stopAt` back to `endTime` and confirm
+`startFrom latestTime;` before relaunching — no need to re-`decomposePar`,
+since decomposition only depends on the mesh, which hasn't changed.
+
+Only fall back to `docker stop <mycontainer>` (Section 2) if the graceful
+route doesn't respond — and if it doesn't, check whether the launch command
+included `exec` before `mpirun` (Section 4, Option C) first, since that's
+the most common reason a stop signal doesn't land.
+
 ### Error: "mpirun has detected an attempt to run as root"
 Containers commonly run everything as root, which Open MPI blocks by default (a safety
 check meant for real shared multi-user systems — largely moot in a disposable container):
@@ -157,6 +214,18 @@ To fix it permanently instead of flagging every command (if the container has ne
 ```bash
 apt-get update && apt-get install -y openssh-client
 ```
+
+### Error: `make` hangs / "File '...' has modification time N s in the future"
+Happens after copying/transferring solver source files onto a machine
+whose clock is behind the one they were written on (e.g. via `scp`, or
+files created on this machine and copied into a container with clock
+drift) — `make`'s dependency tracking compares file timestamps to "now"
+and can loop indefinitely instead of failing cleanly. Fix, run once inside
+the solver's source directory before `wmake`:
+```bash
+find . -type f -exec touch {} +
+```
+
 ## 6. Windows-artifact cleanup (`:Zone.Identifier` files)
 
 If case files were ever downloaded/copied through a Windows filesystem (even briefly, e.g.
@@ -175,4 +244,16 @@ docker --version                  # confirm Docker itself is installed/working
 docker info                       # daemon status, storage driver, resource limits
 docker inspect <mycontainer>      # full JSON detail on a container (mounts, env, state)
 docker stats                      # live CPU/memory usage per running container
+```
+### Was that a real crash, or just an interruption?
+Worth checking before assuming a stopped run needs debugging. A genuine
+solver failure (numerical divergence, bad input) always leaves either an
+explicit `FOAM FATAL ERROR` block in the log, or truncated/garbage output
+mid-timestep. A log that ends cleanly right after a fully normal, fully
+converged timestep (no warnings, bounded residuals) — with nothing that
+looks like an error — points to something *external* stopping it instead
+(lost SSH connection without `nohup`/`-d`, `docker stop` without `exec`,
+a host reboot, or the OOM killer). If you suspect memory was the cause:
+```bash
+dmesg | grep -i -E "killed process|out of memory|oom"
 ```
