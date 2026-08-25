@@ -245,15 +245,10 @@ docker info                       # daemon status, storage driver, resource limi
 docker inspect <mycontainer>      # full JSON detail on a container (mounts, env, state)
 docker stats                      # live CPU/memory usage per running container
 ```
-### Was that a real crash, or just an interruption?
-Worth checking before assuming a stopped run needs debugging. A genuine
-solver failure (numerical divergence, bad input) always leaves either an
+A genuine solver failure (numerical divergence, bad input) always leaves either an
 explicit `FOAM FATAL ERROR` block in the log, or truncated/garbage output
 mid-timestep. A log that ends cleanly right after a fully normal, fully
 converged timestep (no warnings, bounded residuals) — with nothing that
 looks like an error — points to something *external* stopping it instead
 (lost SSH connection without `nohup`/`-d`, `docker stop` without `exec`,
-a host reboot, or the OOM killer). If you suspect memory was the cause:
-```bash
-dmesg | grep -i -E "killed process|out of memory|oom"
-```
+a host reboot, or the OOM/out of memory killer).
