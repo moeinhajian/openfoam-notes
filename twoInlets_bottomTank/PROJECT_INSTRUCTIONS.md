@@ -165,14 +165,147 @@ New this stage:
   `FOAM_USER_APPBIN` was never redirected to the mount) — re-run `wmake` in
   the solver directory once per fresh container session (fast, since only 3
   files differ from stock). Source safety does not depend on this.
+- **`twoLiquidMixingMRFFoam` compiled clean** — zero compiler/linker
+  errors, confirming the MRF patch's function signatures/includes are
+  structurally correct (a wrong signature would have failed here, not
+  silently). Runtime physical-sanity checks (rotor cellZone cell count,
+  impeller boundary velocity non-uniform and consistent with Ω×r,
+  MRF-vs-stock-tutorial comparison) are still the way to confirm the
+  *physics* is right, not just the code.
+- **Cold-start divergence, root-caused, not guessed.** First real transient
+  run diverged (Courant number exploding from ~0 to ~2e14 within 2
+  timesteps). Initial hypothesis (impulsive MRF start-up shock) was
+  contradicted by the evidence itself — divergence appeared before the
+  impeller had rotated even 1°, ruling it out. Actual cause, confirmed by
+  comparing against a working Rosa-lineage reference `fvSchemes`/
+  `fvSolution` for the same problem class: (1) `k`/`epsilon` initialized at
+  an arbitrary near-zero `1e-6` instead of a physically-estimated value from
+  tip speed (`k = 1.5*(I*U_tip)^2`, `epsilon` from the standard mixing-
+  length formula) — day-one bounding warnings were the tell; (2) unbounded
+  `Gauss linear` gradients in a mesh with very steep local gradients (tight
+  tip-gap cells) — fixed with `cellLimited leastSquares 1`; (3) zero PIMPLE
+  relaxation and only 2 `nOuterCorrectors` — insufficient for a stiff
+  startup transient, fixed with 0.3 relaxation on `U`/`k`/`epsilon`/`p_rgh`
+  and `nOuterCorrectors` raised to 50 (only needed for the cold-start step;
+  drops to single digits once spun up — confirmed via `PIMPLE: converged in
+  N iterations` in the log, not assumed).
+- **Fundamental timescale-separation problem, confirmed with measured data,
+  not just estimated.** Impeller rotation period (~0.03s at 2000rpm) vs.
+  mean residence time (~3690s) is a ~5-order-of-magnitude gap. Courant-
+  limited `deltaT` at full rotation speed is fixed by the tip-gap cell size
+  regardless of mesh "looseness" (coarsening reduces per-timestep cost via
+  fewer total cells, NOT the timestep size itself, which is geometrically
+  constrained). Measured wall-clock cost at `maxCo 0.5`: ~78,200 s
+  wall-clock per simulated second (~36,600 years to reach the 4-residence-
+  time target — clearly infeasible as configured). Raising `maxCo`/
+  `maxAlphaCo` to 1 gave a measured **~28x speedup** (not just the ~2x from
+  larger `deltaT` alone — most of the gain came from needing far fewer
+  PIMPLE outer iterations once flow was spun up), bringing it to ~2,800 s
+  wall-clock per simulated second (~24.6 days for a 760s/~0.2-residence-time
+  run). Full 4-residence-time target still needs either much higher `maxCo`,
+  a steady-MRF-then-frozen-flow-field strategy, or accepting a much shorter
+  simulated-time target for this stage's actual purpose.
+- **HPC deployment: new image layered on the existing verified one, never
+  modifying it.** `FROM openfoam5-test:latest` in a new `Dockerfile`
+  (installs `make`, copies the solver source, runs `wmake` at BUILD time
+  so the shipped image is immutable and ready-to-run — no compile step at
+  job launch, unlike the local Option B workflow). Built, saved
+  (`docker save`), transferred, converted with `apptainer build
+  <name>.sif docker-archive://<name>.tar` — same conversion pattern already
+  proven working for the prior project's image.
+- **HPC submit script — sed-synced `numberOfSubdomains`, restart-safe
+  `decomposePar` guard.** Reused the exact working Apptainer/MPI bridging
+  pattern from the prior `twoPhaseEulerFoam` runs (solver name and
+  `$SIF_DIR` changed only). `decomposeParDict`'s `numberOfSubdomains` is
+  synced to `$SLURM_NTASKS` via `sed` at submit time (removes the
+  manual-edit drift risk); the script checks for an existing `processor0/`
+  before decomposing, since re-running `decomposePar` over an
+  already-progressing run's `processor*/` directories would destroy that
+  progress — this guard exists specifically because of the ambiguity we had
+  to resolve by reading the log carefully after the local PC-restart
+  incident. `case/system/controlDict` should use `startFrom latestTime;`
+  (not a hardcoded `startTime 0`) for HPC runs, so a resubmission after any
+  interruption resumes automatically. **Not yet done**: an actual test
+  submission to confirm the whole chain works end-to-end on the cluster.
+- **Parallel restart does not require re-running `decomposePar`** if the
+  processor count is unchanged — decomposition depends only on the mesh and
+  `decomposeParDict`, neither of which changed. Only re-decompose (or use
+  `redistributePar` to reshuffle without a full serial round-trip) when
+  changing core count between runs.
+- **`incompressibleTwoPhaseMixture` field-naming convention — a second real
+  mistake, caught by the solver's own fatal errors, not by review.** The
+  alpha field file must be named `alpha.<firstPhaseName>` (i.e.
+  `alpha.methanol`, matching `phases (methanol water);` in
+  `transportProperties`), NOT the generic `alpha1` — the C++ variable is
+  called `alpha1` internally but the on-disk field name is phase-name-based.
+  A second, related trap in the same area: **`fvSchemes`'s div-scheme
+  lookup for the alpha transport term uses the literal hardcoded key
+  `alpha` (group suffix stripped), not the real field name** —
+  `div(phi,alpha)`/`div(phirb,alpha)`, NOT `div(phi,alpha.methanol)`. Two
+  different lookup mechanisms in the same solver, two different expected
+  keys — the fatal error message is authoritative for each; do not infer
+  one from the other. (Confirmed independently: an unrelated real
+  Rosa-lineage `fvSchemes` also uses the bare `alpha` key, consistent with
+  this being the general convention, not solver-specific.)
+- **Distinguishing a real solver crash from an external interruption in the
+  log.** A genuine physics/numerical failure always produces either an
+  explicit `FOAM FATAL ERROR` block or truncated/garbage mid-timestep
+  output. A log that ends cleanly right after a fully-normal, fully-
+  converged timestep (no warnings, bounded residuals/continuity errors,
+  `PIMPLE: converged`) with no error block is evidence of an *external*
+  kill (reboot, walltime, node failure) — but confirm OOM-kill specifically
+  via `dmesg | grep -i oom` before assuming it was "just" a reboot, since
+  both produce the same clean-stop signature in the OpenFOAM log itself.
+- **HPC image build — `$HOME`-independent install location, CONFIRMED via
+  direct diagnostic on the real cluster, not just theorized.** The original
+  `ENV LOGNAME=root` / `ENV USER=root` Dockerfile fix was solving the wrong
+  variable: on the HPC, Apptainer/Singularity preserved the baked `$USER`
+  and `$LOGNAME` (`root`, as set) but **reset `$HOME` to the real host
+  account regardless** (`/home/moeinhzd`, not `/root`). Since
+  `$WM_PROJECT_USER_DIR` is derived from `$HOME` (not `$USER`/`$LOGNAME`),
+  this alone broke it — `wmake` had installed the custom solver at
+  `/root/OpenFOAM/root-5.0/.../bin` (Docker-build-time `$HOME`), while the
+  cluster resolved `$FOAM_USER_APPBIN` to
+  `/home/moeinhzd/OpenFOAM/root-5.0/.../bin` (nonexistent) at runtime. This
+  is why the stock `twoLiquidMixingFoam` was findable on HPC but the custom
+  `twoLiquidMixingMRFFoam` wasn't: stock solvers live under `$FOAM_APPBIN`
+  (derived from `$WM_PROJECT_DIR=/opt/openfoam5`, fixed inside the image,
+  `$HOME`-independent), while ours lived under the `$HOME`-dependent path.
+  **Working fix**: in the Dockerfile's `wmake` step, `export
+  FOAM_USER_APPBIN=$FOAM_APPBIN` and `export FOAM_USER_LIBBIN=$FOAM_LIBBIN`
+  before building, so the custom solver installs into the same
+  `$HOME`-independent global bin/lib as the stock solvers — works
+  identically under Docker, Apptainer, or anything else, with no reliance
+  on `$HOME`/`$USER`/`$LOGNAME` ever being preserved correctly.
+  `decomposeParDict` uses `method scotch` (no geometric tuning needed for
+  this mesh); `numberOfSubdomains` must be manually kept equal to
+  `$SLURM_NTASKS` — see the "not yet automated" note below.
+- **RTD cannot be extracted from a short simulated-time run** — not a "just
+  need more patience" issue but a structural one: at t=13s vs. τ≈3690s
+  (0.35% of one residence time), no tracer has had time to reach the
+  outlet. The case IS already a valid step-tracer RTD setup (constant
+  `alpha.methanol=1` at `inlet1` since t=0), so no new setup is needed once
+  enough simulated time is reached — but the cheaper route once the
+  velocity field is spun up to a statistically steady rotating pattern is
+  **Lagrangian particle tracking on the frozen flow field**, since particle
+  trajectory integration isn't bound by the same tip-gap Courant limit as
+  the full PDE timestep.
 
 ---
 
 ## 7. Open items
 
-- **`twoLiquidMixingMRFFoam` — compile not yet confirmed.** Next concrete
-  step: `wmake` it under the `/cases`-redirected `WM_PROJECT_USER_DIR` and
-  resolve whatever the compiler says.
+- **Reaching the full 4-residence-time (14760s) target** — still unresolved.
+  Options on the table: push `maxCo` well beyond 1 (PIMPLE is implicit, so
+  this trades local temporal accuracy for throughput rather than risking
+  hard instability); steady-MRF-then-frozen-flow-field + cheaper scalar/
+  particle transport; or redefine this stage's target to a much shorter
+  simulated time if a full residence-time RTD isn't actually needed yet.
+- **HPC job — image built, submit script corrected, not yet run to
+  completion.** Next concrete step: submit, confirm `twoLiquidMixingMRFFoam`
+  actually starts (watch for `Creating MRF zones` in the log), let it run
+  long enough to get a real multi-day throughput number on HPC hardware to
+  compare against the measured local rate.
 - **Miscibility of the REAL feed/second-stream pair** (as opposed to the
   methanol/water placeholder chemistry used to derive Stage A's operating
   conditions) — still the single highest-leverage unresolved question, since
@@ -184,13 +317,21 @@ New this stage:
   quantitative mixing-time numbers.
 - **Mesh convergence study** — scoped (3 refinement levels, global QOIs:
   power number / max epsilon; local QOIs: velocity profile at blade tip, y+
-  distribution) but not yet run against the actual mesh.
+  distribution) but not yet run against the actual mesh. Now additionally
+  constrained by the throughput problem above — a finer mesh makes an
+  already-expensive timestep worse, so this may need to wait until the
+  timescale-separation strategy is settled.
 - **`k`/`epsilon` inlet BCs** are placeholder-reasonable (low turbulence
   intensity) given the negligible-inlet-momentum finding in Section 3 — low
   priority to refine further given that finding.
 - **Turbulence model**: currently k-e by default; SST k-w (Kim 2021
   precedent) not yet adopted — revisit once/if impeller-blade-surface y+
   fidelity becomes the limiting factor.
+- **RTD extraction strategy** — decide between (a) brute-force outlet
+  `alpha.methanol` tracking once/if a long enough run is achieved, or
+  (b) Lagrangian particle tracking on a frozen converged flow field
+  (cheaper, decouples from the PDE Courant limit). Leaning (b) given the
+  throughput numbers above.
 
 ---
 
