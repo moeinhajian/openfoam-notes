@@ -33,10 +33,15 @@ things: `tail -f`, `scp`, `monitor_rtd.py`, all work directly against
 ## 1. One-time setup (only redo if starting fresh on a new machine)
 
 ```bash
-docker images                      # confirm <IMAGE> is present
+# on the ORIGINAL machine
+docker save openfoam5-mrfsolver:latest -o openfoam5-mrfsolver.tar
+scp openfoam5-mrfsolver.tar you@new-workstation:/path/to/somewhere/
+
+# on THIS new machine
+docker load -i openfoam5-mrfsolver.tar
+docker images    # confirm it now shows up here
 ```
-If it's missing: `docker load -i <image>.tar` (transferred from wherever it
-was built), or rebuild from the Dockerfile.
+If you already ran `docker build` directly on this new machine (using the Dockerfile + solver source folder from earlier), just confirm it's there: `docker images`
 
 ```bash
 mkdir -p <HOST_DIR>
