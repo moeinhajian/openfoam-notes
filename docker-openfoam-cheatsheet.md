@@ -42,6 +42,25 @@ docker start -ai <mycontainer>    # -a: attach output, -i: interactive (get your
 ```bash
 source /opt/openfoam5/etc/bashrc
 ```
+> **⚠ `-ai` is dangerous for anything you plan to leave running unattended.**
+> `-ai` attaches your terminal directly to the container's **PID 1** — its
+> main process (the shell you get dropped into). In Docker, the whole
+> container stops the instant PID 1 exits, for *any* reason, including a
+> hangup from your SSH session closing — and this happens regardless of
+> whether the process you actually care about (`mpirun`) was `nohup`'d and
+> `disown`'d, because those only protect a process from *its own parent
+> shell* dying, not from the *entire container* stopping. If PID 1 is that
+> parent shell, both problems hit at once.
+>
+> **If you're about to launch something long-running that must survive
+> disconnecting, use this instead:**
+> ```bash
+> docker start <mycontainer>              # NO -a, NO -i -- nothing attaches to PID 1 at all
+> docker exec -it <mycontainer> bash      # a SEPARATE process, not PID 1
+> ```
+> Inside that `exec`'d shell, `nohup ... & disown` now protects the *right*
+> thing, and PID 1 was never at risk in the first place — your SSH session
+> has no path to it either way. See Section 4, Option D for the full recipe.
 
 ### Popping into an ALREADY RUNNING container (second window, doesn't disturb it)
 ```bash
@@ -143,6 +162,37 @@ docker run -d --rm --name of5_run -v ~/openfoam-cases:/cases <image_name> \
     exec mpirun -np 4 pimpleFoam -parallel > log.run 2>&1"
 ```
 **Note the `exec` before `mpirun` — this isn't optional if you want `docker stop` to work.** Without it, `mpirun` is a *child* of the `bash -c` process, and Docker's stop signal goes to `bash`, which does not automatically forward it to children it spawned — a genuine, well-known Docker gotcha, not a hypothetical. `exec` replaces the bash process with `mpirun` entirely, so `mpirun` becomes the container's actual PID 1 and receives the signal directly.
+
+### Option D — an EXISTING container with interactive edits you can't lose, background a run in it
+This is the situation Options A/C don't cover: you already have a named
+container with custom changes baked into its own writable layer (not the
+image), and you need to background a long run in *that specific
+container* — recreating it from the image would lose your edits.
+
+```bash
+# 1. Bring it up with NOTHING attached to PID 1 -- no -a, no -i
+docker start <mycontainer>
+docker ps | grep <mycontainer>          # confirm it's actually Up
+
+# 2. Get a shell via exec -- a SEPARATE process from PID 1, not the same one
+docker exec -it <mycontainer> bash
+
+# 3. Inside that exec'd shell:
+source /opt/openfoam5/etc/bashrc
+cd /cases/myCase
+nohup mpirun --allow-run-as-root -np <N> twoLiquidMixingMRFFoam -parallel \
+    > log.run 2>&1 &
+disown
+
+exit    # safe now -- only closes THIS exec'd shell, PID 1 is untouched
+```
+Why this works when `docker start -ai` + `nohup`/`disown` didn't: see the
+warning box in Section 2 — `-ai` ties your SSH session directly to PID 1,
+and the whole container dies with PID 1 regardless of what's nohup'd
+underneath it. Skipping `-ai` means PID 1 never has anything attached to
+it in the first place, so there's no path from your SSH session to it at
+all; the `exec`'d shell is a separate, disposable layer on top, itself
+protected by `nohup`/`disown` as usual.
 
 ## 5. Everyday OpenFOAM-in-container workflow
 
